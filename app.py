@@ -4,6 +4,7 @@ import random
 import datetime
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
+import yfinance as yf
 
 # --- SETUP ---
 app = Flask(__name__)
@@ -39,12 +40,46 @@ def fetch_social_data(ticker):
     ]
     return [random.choice(templates) for _ in range(5)]
 
-def analyze_sentiment(text):
-    """Uses NLTK VADER to score text."""
-    score = sia.polarity_scores(text)['compound']
-    if score > 0.05: return score, "Positive"
-    if score < -0.05: return score, "Negative"
-    return score, "Neutral"
+@app.route('/api/analyze', methods=['POST'])
+def analyze():
+    ticker = request.json.get('ticker', 'AAPL').upper()
+    
+    # --- NEW: Fetch Real Stock Price Data ---
+    try:
+        stock = yf.Ticker(ticker)
+        # Get last 1 day of data at 15-minute intervals
+        hist = stock.history(period="1d", interval="15m")
+        
+        # Extract relevant data for the chart
+        price_dates = [str(date.strftime('%H:%M')) for date in hist.index]
+        price_values = [round(val, 2) for val in hist['Close'].tolist()]
+        current_price = price_values[-1] if price_values else "N/A"
+    except Exception as e:
+        print(f"Error fetching stock data: {e}")
+        price_dates, price_values, current_price = [], [], "Error"
+
+    # --- EXISTING: Sentiment Analysis Logic ---
+    raw_posts = fetch_social_data(ticker) # (Your existing function)
+    
+    # ... (Keep your existing SQL logic here for inserting logs) ...
+    # For the response, we just need to calculate the average score again
+    
+    # Mocking the score calculation for this snippet (use your DB logic here)
+    avg_score = 0.15 
+    prediction = "BULLISH 📈" if avg_score > 0.05 else "BEARISH 📉"
+
+    return jsonify({
+        'ticker': ticker,
+        'prediction': prediction,
+        'avg_score': avg_score,
+        'current_price': current_price,
+        'chart_data': {
+            'labels': price_dates,       # X-Axis (Time)
+            'prices': price_values,      # Y-Axis 1 (Price)
+            # Create mock sentiment data matching the length of price data for the demo chart
+            'sentiment': [avg_score + random.uniform(-0.1, 0.1) for _ in range(len(price_values))] 
+        }
+    })
 
 # --- ROUTES ---
 @app.route('/')
