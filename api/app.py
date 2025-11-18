@@ -3,7 +3,12 @@ import psycopg2
 import datetime
 import random
 import nltk
+nltk.download('vader_lexicon', download_dir='/tmp/nltk_data')
+NLTK_DATA_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'nltk_data')
+if NLTK_DATA_PATH not in nltk.data.path:
+    nltk.data.path.append(NLTK_DATA_PATH)
 from flask import Flask, render_template, jsonify, request
+from nltk.corpus import stopwords
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import yfinance as yf
 
