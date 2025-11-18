@@ -7,49 +7,140 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { background: #f0f2f5; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .brand-header { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); color: white; padding: 2rem 0; margin-bottom: 2rem; }
-        .card { border: none; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); transition: transform 0.2s; }
-        .prediction-box { background: #fff; border-left: 5px solid #1e3c72; }
+        body { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+        }
+        .brand-header { 
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            color: white;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+        }
+        .card { 
+            border: none;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            background: rgba(255,255,255,0.95);
+            transition: transform 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        .prediction-box { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 12px;
+        }
         .score-pos { color: #28a745; font-weight: bold; }
         .score-neg { color: #dc3545; font-weight: bold; }
+        .score-neutral { color: #6c757d; font-weight: bold; }
+        .status-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 0.7rem;
+        }
+        .feed-item {
+            border-left: 3px solid #667eea;
+            padding-left: 10px;
+            margin-bottom: 10px;
+            transition: all 0.3s;
+        }
+        .feed-item:hover {
+            background: rgba(102,126,234,0.05);
+        }
+        .metric-card {
+            text-align: center;
+            padding: 1rem;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            margin-bottom: 1rem;
+        }
     </style>
 </head>
 <body>
 
 <div class="brand-header text-center">
     <h1>🧠 Synapse Sentiment Engine</h1>
-    <p class="lead">"Intelligence that reads the market’s mind."</p>
+    <p class="lead">"Intelligence that reads the market's mind."</p>
+    <div id="systemStatus" class="mt-2">
+        <span class="badge bg-light text-dark">Checking system status...</span>
+    </div>
 </div>
 
 <div class="container">
     <div class="row">
+        <!-- Left Panel -->
         <div class="col-md-4 mb-4">
-            <div class="card p-4">
+            <div class="card p-4 position-relative">
                 <h4>🔍 Market Scanner</h4>
                 <div class="input-group mb-3">
-                    <input type="text" id="tickerInput" class="form-control" placeholder="Enter Ticker (e.g. AAPL)">
+                    <input type="text" id="tickerInput" class="form-control" placeholder="Enter Ticker (e.g. AAPL)" value="AAPL">
                     <button class="btn btn-primary" onclick="runAnalysis()">Analyze</button>
                 </div>
+                
                 <div class="prediction-box p-3 mt-3 text-center">
-                    <h6 class="text-muted">MARKET PREDICTION</h6>
+                    <h6 class="text-white-50">AI PREDICTION</h6>
                     <h2 id="predictionResult">--</h2>
-                    <small id="scoreResult">Sentiment Score: 0.00</small>
+                    <small id="scoreResult" class="text-white-50">Sentiment Score: 0.00</small>
+                    <div class="mt-2">
+                        <small id="currentPrice" class="text-white">Current Price: --</small>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Metrics Cards -->
+            <div class="row mt-3">
+                <div class="col-6">
+                    <div class="metric-card">
+                        <h6>Posts Analyzed</h6>
+                        <h3 id="postsCount">0</h3>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="metric-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                        <h6>Data Source</h6>
+                        <small id="dataSource">--</small>
+                    </div>
                 </div>
             </div>
             
             <div class="card mt-3 p-3">
-                <h5>📡 Live Feed</h5>
-                <div id="feedArea" style="max-height: 300px; overflow-y: auto;">
+                <h5>📡 Live Sentiment Feed</h5>
+                <div id="feedArea" style="max-height: 350px; overflow-y: auto;">
                     <p class="text-muted small">Waiting for analysis...</p>
                 </div>
             </div>
         </div>
 
+        <!-- Right Panel -->
         <div class="col-md-8">
-            <div class="card p-4">
-                <h4>📊 Sentiment Trend</h4>
+            <div class="card p-4 mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4>📊 Market Sentiment Analysis</h4>
+                    <div>
+                        <span class="badge bg-info" id="nlpModel">NLP: --</span>
+                        <span class="badge bg-success ms-2" id="mlStatus">ML: --</span>
+                    </div>
+                </div>
                 <canvas id="sentimentChart"></canvas>
+            </div>
+            
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="card p-3">
+                        <h6>💡 Insights</h6>
+                        <div id="insightsArea">
+                            <p class="text-muted small mb-0">Run an analysis to see AI-powered insights...</p>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -58,58 +149,125 @@
 <script>
     let chart;
 
+    // Check system status on load
+    async function checkStatus() {
+        try {
+            const res = await fetch('/api/status');
+            const status = await res.json();
+            
+            let badges = [];
+            badges.push(`<span class="badge ${status.reddit_connected ? 'bg-success' : 'bg-warning'}">Reddit: ${status.reddit_connected ? 'Connected' : 'Simulated'}</span>`);
+            badges.push(`<span class="badge ${status.finbert_loaded ? 'bg-success' : 'bg-warning'}">FinBERT: ${status.finbert_loaded ? 'Active' : 'VADER'}</span>`);
+            badges.push(`<span class="badge ${status.ml_model_trained ? 'bg-success' : 'bg-info'}">ML: ${status.ml_model_trained ? 'Trained' : 'Basic'}</span>`);
+            
+            document.getElementById('systemStatus').innerHTML = badges.join(' ');
+        } catch (e) {
+            console.error('Status check failed:', e);
+        }
+    }
+    
+    checkStatus();
+
     async function runAnalysis() {
-        const ticker = document.getElementById('tickerInput').value;
-        if(!ticker) return;
+        const ticker = document.getElementById('tickerInput').value.toUpperCase();
+        if(!ticker) {
+            alert('Please enter a stock ticker!');
+            return;
+        }
 
-        document.getElementById('predictionResult').innerText = "Thinking... 🧠";
+        // Show loading state
+        document.getElementById('predictionResult').innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Analyzing...';
+        document.getElementById('feedArea').innerHTML = '<p class="text-muted small">Fetching data...</p>';
         
-        const res = await fetch('/api/analyze', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ticker: ticker})
-        });
-        const data = await res.json();
+        try {
+            const res = await fetch('/api/analyze', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ticker: ticker})
+            });
+            const data = await res.json();
 
-        // Update Prediction
-        document.getElementById('predictionResult').innerText = data.prediction;
-        document.getElementById('scoreResult').innerText = `Sentiment Score: ${data.avg_score}`;
+            // Update Prediction
+            document.getElementById('predictionResult').innerText = data.prediction;
+            document.getElementById('scoreResult').innerText = `Sentiment Score: ${data.avg_score}`;
+            document.getElementById('currentPrice').innerText = `Current Price: $${data.current_price}`;
+            
+            // Update Metrics
+            document.getElementById('postsCount').innerText = data.total_posts_analyzed;
+            document.getElementById('dataSource').innerText = data.data_source;
+            document.getElementById('nlpModel').innerText = `NLP: ${data.nlp_model}`;
 
-        // Update Feed
-        const feed = document.getElementById('feedArea');
-        feed.innerHTML = "";
-        data.logs.forEach(log => {
-            const colorClass = log.score > 0 ? 'score-pos' : (log.score < 0 ? 'score-neg' : 'text-muted');
-            feed.innerHTML += `
-                <div class="border-bottom py-2">
-                    <span class="badge bg-secondary">${log.source}</span>
-                    <span class="${colorClass} float-end">${log.label}</span>
-                    <p class="mb-0 small mt-1">${log.text}</p>
-                </div>`;
-        });
+            // Update Feed
+            const feed = document.getElementById('feedArea');
+            feed.innerHTML = "";
+            data.logs.forEach(log => {
+                const colorClass = log.score > 0 ? 'score-pos' : (log.score < 0 ? 'score-neg' : 'score-neutral');
+                feed.innerHTML += `
+                    <div class="feed-item">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <span class="badge bg-secondary">${log.source}</span>
+                            <span class="${colorClass}">${log.label} (${log.score})</span>
+                        </div>
+                        <p class="mb-0 small mt-1">${log.text}</p>
+                    </div>`;
+            });
 
-        // Update Chart (Simulated History)
+            // Generate Insights
+            generateInsights(data);
+
+            // Update Chart
+            updateChart(data);
+            
+        } catch (error) {
+            console.error('Analysis failed:', error);
+            document.getElementById('predictionResult').innerText = '❌ Error';
+            document.getElementById('feedArea').innerHTML = '<p class="text-danger">Analysis failed. Please try again.</p>';
+        }
+    }
+
+    function generateInsights(data) {
+        const insights = document.getElementById('insightsArea');
+        let insightHTML = '<ul class="small mb-0">';
+        
+        if (data.avg_score > 0.2) {
+            insightHTML += '<li>🔥 <strong>Strong positive sentiment</strong> detected across social platforms</li>';
+        } else if (data.avg_score < -0.2) {
+            insightHTML += '<li>⚠️ <strong>Negative sentiment</strong> detected - potential risk signals</li>';
+        } else {
+            insightHTML += '<li>📊 <strong>Neutral sentiment</strong> - market appears balanced</li>';
+        }
+        
+        insightHTML += `<li>📈 Analyzed ${data.total_posts_analyzed} posts from ${data.data_source}</li>`;
+        insightHTML += `<li>🤖 Using ${data.nlp_model} for advanced sentiment analysis</li>`;
+        
+        insightHTML += '</ul>';
+        insights.innerHTML = insightHTML;
+    }
+
+    function updateChart(data) {
         const ctx = document.getElementById('sentimentChart');
         if (chart) chart.destroy();
         
         chart = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: data.chart_data.labels, // Times from yfinance
+                labels: data.chart_data.labels,
                 datasets: [
                     {
                         label: 'Stock Price ($)',
                         data: data.chart_data.prices,
-                        borderColor: '#28a745', // Green line for money
-                        yAxisID: 'y', // Left Axis
-                        tension: 0.4
+                        borderColor: '#28a745',
+                        backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                        yAxisID: 'y',
+                        tension: 0.4,
+                        fill: true
                     },
                     {
                         label: 'Social Sentiment',
                         data: data.chart_data.sentiment,
-                        borderColor: '#1e3c72', // Blue line for your brand
-                        borderDash: [5, 5], // Dashed line to distinguish it
-                        yAxisID: 'y1', // Right Axis
+                        borderColor: '#667eea',
+                        borderDash: [5, 5],
+                        yAxisID: 'y1',
                         tension: 0.4
                     }
                 ]
@@ -120,25 +278,49 @@
                     mode: 'index',
                     intersect: false,
                 },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top'
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0,0,0,0.8)',
+                        padding: 12,
+                        titleFont: { size: 14 },
+                        bodyFont: { size: 13 }
+                    }
+                },
                 scales: {
                     y: {
                         type: 'linear',
                         display: true,
                         position: 'left',
-                        title: { display: true, text: 'Stock Price ($)' }
+                        title: { display: true, text: 'Stock Price ($)', font: { weight: 'bold' } },
+                        grid: { color: 'rgba(0,0,0,0.05)' }
                     },
                     y1: {
                         type: 'linear',
                         display: true,
                         position: 'right',
-                        grid: { drawOnChartArea: false }, // Remove grid lines for clarity
-                        title: { display: true, text: 'Sentiment Score (-1 to 1)' },
+                        grid: { drawOnChartArea: false },
+                        title: { display: true, text: 'Sentiment Score', font: { weight: 'bold' } },
                         min: -1,
                         max: 1
+                    },
+                    x: {
+                        grid: { color: 'rgba(0,0,0,0.05)' }
                     }
                 }
             }
         });
+    }
+
+    // Allow Enter key to trigger analysis
+    document.getElementById('tickerInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            runAnalysis();
+        }
+    });
 </script>
 </body>
 </html>
