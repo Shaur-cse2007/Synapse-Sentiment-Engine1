@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Ticker - Global Market Intelligence</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Use Inter font, which is clean and professional -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=IBM+Plex+Mono:wght@400;600&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            color: #E5E7EB; /* Light gray text */
+            background-color: #0F172A; /* Deep Navy Blue/Black background for "Wall Street" look */
+        }
+        .data-mono {
+            font-family: 'IBM Plex Mono', monospace;
+        }
+        /* Custom scrollbar for data density */
+        .data-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .data-scroll::-webkit-scrollbar-thumb {
+            background-color: #374151;
+            border-radius: 3px;
+        }
+        .data-scroll::-webkit-scrollbar-track {
+            background-color: #1F2937;
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <!-- Global API Keys/Config -->
+    <script>
+        // Use the global config variables provided by the environment
+        const apiKey = typeof __api_key !== 'undefined' ? __api_key : "";
+        const geminiModel = 'gemini-2.5-flash-preview-09-2025';
+    </script>
+
+    <!-- Header / Top Bar -->
+    <header class="sticky top-0 bg-gray-900 border-b border-gray-700 shadow-xl z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
+            <h1 class="text-3xl font-extrabold text-white tracking-wider data-mono">
+                <span class="text-green-500">$</span>TICKER<span class="text-red-500">.io</span>
+            </h1>
+            <div class="flex items-center space-x-4">
+                <input type="text" id="symbol-input" placeholder="Lookup Ticker (e.g., TSLA)"
+                       class="px-3 py-1.5 text-sm bg-gray-800 border border-gray-700 rounded-md text-white focus:ring-green-500 focus:border-green-500 data-mono">
+                <button onclick="fetchStockData()"
+                        class="bg-green-600 hover:bg-green-700 text-white font-semibold py-1.5 px-4 rounded-md transition duration-200">
+                    ANALYZE
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Ticker Tape - Simulating live indices -->
+    <div id="ticker-tape" class="bg-gray-800 border-b border-gray-700 overflow-hidden whitespace-nowrap py-1.5 text-sm">
+        <div id="ticker-content" class="inline-block data-mono">
+            <!-- Ticker content injected here -->
+        </div>
+    </div>
+
+    <!-- Main Content Grid -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 grid lg:grid-cols-4 gap-8">
+
+        <!-- Column 1: Indices and Watchlist (The Control Panel) -->
+        <div class="lg:col-span-1 space-y-8">
+            
+            <!-- 1. Major Index Snapshot -->
+            <div class="bg-gray-800 p-5 rounded-lg border border-gray-700 shadow-lg">
+                <h2 class="text-lg font-bold text-gray-100 mb-4 border-b border-gray-700 pb-2">MARKET INDICES</h2>
+                <div id="sp500-snapshot" class="data-mono space-y-3">
+                    <!-- S&P 500 data inserted here -->
+                </div>
+                <div class="mt-4 text-xs text-gray-500">Data as of <span id="data-time">--</span></div>
+            </div>
+
+            <!-- 2. Volatility Watchlist (Simulated) -->
+            <div class="bg-gray-800 p-5 rounded-lg border border-gray-700 shadow-lg">
+                <h2 class="text-lg font-bold text-gray-100 mb-4 border-b border-gray-700 pb-2">VOLATILITY WATCH</h2>
+                <div id="watchlist" class="data-mono space-y-3">
+                    <!-- Watchlist items injected here -->
+                </div>
+            </div>
+            
+            <!-- 3. Sector Performance (Simulated) -->
+            <div class="bg-gray-800 p-5 rounded-lg border border-gray-700 shadow-lg">
+                <h2 class="text-lg font-bold text-gray-100 mb-4 border-b border-gray-700 pb-2">SECTOR LEADERS</h2>
+                <div id="sector-performance" class="data-mono space-y-3">
+                    <div class="flex justify-between items-center text-green-400">
+                        <span>TECH (XLK)</span>
+                        <span class="font-semibold">+1.85%</span>
+                    </div>
+                    <div class="flex justify-between items-center text-red-400">
+                        <span>ENERGY (XLE)</span>
+                        <span class="font-semibold">-1.12%</span>
+                    </div>
+                    <div class="flex justify-between items-center text-green-400">
+                        <span>FINANCIALS (XLF)</span>
+                        <span class="font-semibold">+0.67%</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Column 2 & 3: Main Chart and Analysis -->
+        <div class="lg:col-span-3 space-y-8">
+            
+            <!-- 1. Main Chart Area -->
+            <div class="bg-gray-800 p-5 rounded-lg border border-gray-700 shadow-lg h-96 relative">
+                <h2 class="text-xl font-bold text-white mb-2" id="chart-title">S&P 500 (SPX) - 1D Chart</h2>
+                <div class="absolute inset-0 p-5 pt-12">
+                    <canvas id="stockChart" class="w-full h-full"></canvas>
+                </div>
+            </div>
+
+            <!-- 2. Analyst Report / Market Themes -->
+            <div class="bg-gray-800 p-5 rounded-lg border border-gray-700 shadow-lg">
+                <h2 class="text-xl font-bold text-white mb-4 border-b border-gray-700 pb-2">WALL STREET BRIEFING: Current Themes</h2>
+                <div id="analyst-report" class="text-gray-300 data-scroll max-h-56 overflow-y-auto">
+                    <div class="text-center py-8">
+                        <svg class="animate-spin h-5 w-5 text-green-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <p class="mt-2 text-sm text-gray-400">Fetching live market sentiment from the Gemini terminal...</p>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+        
+    </main>
+
+    <!-- Load Chart.js for the visual data -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script>
+        // --- Core Application Logic ---
+
+        const SP500_DATA = {
+            price: 6673.54,
+            change: -60.57,
+            percentChange: -0.899451,
+            close: 6734.11,
+            date: '2025-11-17 16:00:00-05:00',
+            open: 6713.61,
+            high: 6754.50,
+            low: 6638.90
+        };
+
+        const STOCKS = [
+            { symbol: 'TSLA', price: 235.45, change: 0.85, volatility: 0.8, history: generateRandomHistory(230, 240) },
+            { symbol: 'AAPL', price: 178.12, change: -1.56, volatility: 0.6, history: generateRandomHistory(175, 185) },
+            { symbol: 'NVDA', price: 921.88, change: 12.33, volatility: 1.2, history: generateRandomHistory(900, 950) },
+            { symbol: 'GOOGL', price: 145.91, change: -0.11, volatility: 0.4, history: generateRandomHistory(140, 150) },
+            { symbol: 'JPM', price: 192.50, change: 0.70, volatility: 0.5, history: generateRandomHistory(180, 200) },
+        ];
+
+        let chartInstance = null;
+
+        // --- Utility Functions ---
+
+        /** Generates random price data for the chart visualization. */
+        function generateRandomHistory(base, variance) {
+            const data = [];
+            for (let i = 0; i < 20; i++) {
+                data.push(parseFloat((base + (Math.random() - 0.5) * variance * 0.1).toFixed(2)));
+            }
+            return data;
+        }
+
+        /** Formats a number to a string with color class. */
+        function formatPrice(price, showSign = true) {
+            const sign = price >= 0 ? '+' : '-';
+            const color = price >= 0 ? 'text-green-500' : 'text-red-500';
+            const displaySign = showSign ? sign : '';
+            return `<span class="${color}">${displaySign}${Math.abs(price).toFixed(2)}</span>`;
+        }
+        
+        /** Formats a percentage with color class. */
+        function formatPercent(percent, showSign = true) {
+            const sign = percent >= 0 ? '+' : '-';
+            const color = percent >= 0 ? 'text-green-500' : 'text-red-500';
+            const displaySign = showSign ? sign : '';
+            return `<span class="${color}">${displaySign}${Math.abs(percent).toFixed(2)}%</span>`;
+        }
+
+        // --- Rendering Functions ---
+
+        /** Updates the major index snapshot panel. */
+        function renderSp500Snapshot() {
+            const data = SP500_DATA;
+            const element = document.getElementById('sp500-snapshot');
+            const changeHtml = formatPrice(data.change, true);
+            const percentHtml = formatPercent(data.percentChange, true);
+            const colorClass = data.change >= 0 ? 'text-green-500' : 'text-red-500';
+            const arrow = data.change >= 0 ? '▲' : '▼';
+
+            element.innerHTML = `
+                <div class="flex justify-between items-end">
+                    <span class="text-xl font-bold text-white">S&P 500</span>
+                    <span class="text-3xl font-extrabold ${colorClass}">${data.price.toFixed(2)}</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-400">Change:</span>
+                    <span class="font-semibold">${changeHtml} (${percentHtml}) ${arrow}</span>
+                </div>
+                <div class="grid grid-cols-2 gap-2 text-xs text-gray-400 border-t border-gray-700 pt-3 mt-3">
+                    <div class="flex justify-between"><span>OPEN:</span><span class="text-white">${data.open.toFixed(2)}</span></div>
+                    <div class="flex justify-between"><span>CLOSE:</span><span class="text-white">${data.close.toFixed(2)}</span></div>
+                    <div class="flex justify-between"><span>HIGH:</span><span class="text-white">${data.high.toFixed(2)}</span></div>
+                    <div class="flex justify-between"><span>LOW:</span><span class="text-white">${data.low.toFixed(2)}</span></div>
+                </div>
+            `;
+            document.getElementById('data-time').textContent = new Date(data.date).toLocaleString();
+        }
+
+        /** Renders the dynamically updated watchlist. */
+        function renderWatchlist() {
+            const element = document.getElementById('watchlist');
+            element.innerHTML = STOCKS.map(stock => {
+                const changeHtml = formatPrice(stock.change, true);
+                const colorClass = stock.change >= 0 ? 'text-green-400' : 'text-red-400';
+                return `
+                    <div class="flex justify-between items-center text-sm">
+                        <span class="font-bold text-gray-100">${stock.symbol}</span>
+                        <div class="flex items-center space-x-2">
+                            <span class="text-white">${stock.price.toFixed(2)}</span>
+                            <span class="${colorClass} font-semibold">${changeHtml}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        /** Updates the continuous market ticker tape. */
+        function renderTickerTape() {
+            const tapeContent = document.getElementById('ticker-content');
+            
+            // Static indices data to show in the tape
+            const indices = [
+                { name: 'DOW', price: 35000.45, change: -120.70 },
+                { name: 'NASDAQ', price: 15300.12, change: 85.33 },
+                { name: 'VIX', price: 13.98, change: -0.55 },
+                { name: 'GOLD', price: 2150.80, change: 4.10 },
+                { name: 'OIL', price: 78.55, change: -0.90 },
+            ];
+            
+            // Combine with STOCKS
+            const allItems = [...indices, ...STOCKS.slice(0, 3)].map(item => {
+                const changeHtml = formatPrice(item.change, true);
+                const colorClass = item.change >= 0 ? 'text-green-400' : 'text-red-400';
+                const price = item.price ? item.price.toFixed(2) : '--';
+
+                return `<span class="px-6">
+                            <span class="font-bold text-white">${item.symbol || item.name}:</span>
+                            <span class="text-gray-300">${price}</span>
+                            <span class="${colorClass}">${changeHtml}</span>
+                        </span>`;
+            }).join('');
+
+            // Create enough duplication to ensure seamless scrolling
+            tapeContent.innerHTML = allItems + allItems + allItems;
+
+            // Simple CSS animation for the scroll
+            const tape = document.getElementById('ticker-tape');
+            const content = document.getElementById('ticker-content');
+            
+            tape.style.overflow = 'hidden';
+            content.style.display = 'inline-block';
+            content.style.whiteSpace = 'nowrap';
+            content.style.paddingRight = '100%'; 
+
+            let scrollPos = 0;
+            function scrollTicker() {
+                scrollPos = (scrollPos - 0.5) % (content.scrollWidth / 3);
+                content.style.transform = `translateX(${scrollPos}px)`;
+                requestAnimationFrame(scrollTicker);
+            }
+            requestAnimationFrame(scrollTicker);
+        }
+
+        /** Renders the main chart using Chart.js. */
+        function renderChart(stock = null) {
+            const dataToChart = stock ? stock.history : generateRandomHistory(SP500_DATA.price - 10, 50);
+            const label = stock ? stock.symbol : 'S&P 500 (SPX)';
+            const titleElement = document.getElementById('chart-title');
+            titleElement.textContent = `${label} - 1D Chart`;
+
+            const isPositive = dataToChart[dataToChart.length - 1] >= dataToChart[0];
+            const color = isPositive ? '#10B981' : '#EF4444'; // Green or Red
+
+            const ctx = document.getElementById('stockChart').getContext('2d');
+            
+            // Destroy previous chart instance if it exists
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            // Create a gradient fill for the area chart
+            const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+            gradient.addColorStop(0, isPositive ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)');
+            gradient.addColorStop(1, 'rgba(15, 23, 42, 0)'); // Fading to background color
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({ length: dataToChart.length }, (_, i) => `${i * 30}m`),
+                    datasets: [{
+                        label: label + ' Price',
+                        data: dataToChart,
+                        borderColor: color,
+                        borderWidth: 2,
+                        fill: true,
+                        backgroundColor: gradient,
+                        tension: 0.2,
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.dataset.label}: $${context.parsed.y.toFixed(2)}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: true,
+                            grid: { color: '#374151' },
+                            ticks: { color: '#9CA3AF' }
+                        },
+                        y: {
+                            display: true,
+                            grid: { color: '#374151' },
+                            ticks: { color: '#9CA3AF' }
+                        }
+                    }
+                }
+            });
+        }
+        
+        /** Handler for the ANALYZE button / Ticker lookup. */
+        function fetchStockData() {
+            const symbol = document.getElementById('symbol-input').value.toUpperCase().trim();
+            const stock = STOCKS.find(s => s.symbol === symbol);
+            
+            if (stock) {
+                renderChart(stock);
+            } else {
+                // Simplified lookup simulation
+                showStatusMessage(`No data found for ${symbol}. Displaying S&P 500.`, 'text-yellow-400');
+                renderChart(null);
+            }
+        }
+
+        // --- Message Box / Status Feedback ---
+        function showStatusMessage(message, colorClass) {
+            const titleElement = document.getElementById('chart-title');
+            titleElement.textContent = message;
+            titleElement.className = `text-xl font-bold mb-2 ${colorClass}`;
+            
+            // Revert message after a few seconds
+            setTimeout(() => {
+                titleElement.textContent = 'S&P 500 (SPX) - 1D Chart';
+                titleElement.className = 'text-xl font-bold text-white mb-2';
+            }, 3000);
+        }
+
+        // --- Market Theme / LLM Integration ---
+
+        async function fetchMarketThemes() {
+            const reportElement = document.getElementById('analyst-report');
+            const systemPrompt = "You are a senior equity market analyst at a prestigious Wall Street firm. Your task is to synthesize the provided search results into a concise, professional, and confident market briefing (no more than 3 paragraphs). Focus on the major themes, key index performance, and sectors to watch. Do not use conversational language like 'I will summarize.' Start directly with the analysis. Use the exact S&P 500 data provided.";
+            const userQuery = `Current S&P 500: ${SP500_DATA.price.toFixed(2)} (${SP500_DATA.percentChange.toFixed(2)}%). Summarize the major global market themes and investment narratives from the search results, mentioning key sectors like Technology and Financials.`;
+            
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`;
+            
+            const payload = {
+                contents: [{ parts: [{ text: userQuery }] }],
+                tools: [{ "google_search": {} }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+            };
+            
+            try {
+                // Using exponential backoff for robust API call
+                let response = null;
+                let resultText = '';
+                const maxRetries = 3;
+                let delay = 1000;
+
+                for (let i = 0; i < maxRetries; i++) {
+                    response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        const candidate = result.candidates?.[0];
+                        if (candidate && candidate.content?.parts?.[0]?.text) {
+                            resultText = candidate.content.parts[0].text;
+                            break; // Success
+                        }
+                    }
+                    
+                    if (i < maxRetries - 1) {
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        delay *= 2; // Exponential backoff
+                    }
+                }
+
+                if (resultText) {
+                    // Format the response for a Wall Street report look
+                    const formattedReport = resultText
+                        .split('\n')
+                        .filter(p => p.trim() !== '')
+                        .map(p => `<p class="mb-4 leading-relaxed">${p}</p>`)
+                        .join('');
+                        
+                    reportElement.innerHTML = formattedReport;
+                } else {
+                    reportElement.innerHTML = `<p class="text-red-500">Error: Could not retrieve analyst report. The market remains volatile. ${response?.statusText || 'Unknown error.'}</p>`;
+                }
+
+            } catch (error) {
+                console.error("API Call Error:", error);
+                reportElement.innerHTML = `<p class="text-red-500">Network Error: Unable to connect to the intelligence feed.</p>`;
+            }
+        }
+
+        // --- Initialization on Load ---
+
+        window.onload = function() {
+            // Initial render of static data
+            renderSp500Snapshot();
+            renderWatchlist();
+            
+            // Render default S&P 500 chart
+            renderChart(null);
+            
+            // Start the infinite ticker scroll
+            renderTickerTape();
+
+            // Fetch the market themes via Gemini API
+            fetchMarketThemes();
+            
+            // Simulate live updates for the watchlist every 5 seconds
+            setInterval(() => {
+                STOCKS.forEach(stock => {
+                    // Simple random walk simulation
+                    const volatilityFactor = stock.volatility * 0.05;
+                    stock.change = parseFloat((stock.change + (Math.random() - 0.5) * volatilityFactor).toFixed(2));
+                    stock.price = parseFloat((stock.price + stock.change / 100).toFixed(2));
+                    stock.history.push(stock.price);
+                    stock.history.shift();
+                });
+                renderWatchlist();
+            }, 5000);
+        };
+    </script>
+</body>
+</html>
