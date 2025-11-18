@@ -95,18 +95,50 @@
         chart = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: ['1h ago', '45m ago', '30m ago', '15m ago', 'Now'],
-                datasets: [{
-                    label: `Sentiment Momentum (${data.ticker})`,
-                    data: [0, 0.1, -0.2, 0.05, data.avg_score], // Mock trend + actual final score
-                    borderColor: '#1e3c72',
-                    backgroundColor: 'rgba(30, 60, 114, 0.1)',
-                    fill: true,
-                    tension: 0.4
-                }]
+                labels: data.chart_data.labels, // Times from yfinance
+                datasets: [
+                    {
+                        label: 'Stock Price ($)',
+                        data: data.chart_data.prices,
+                        borderColor: '#28a745', // Green line for money
+                        yAxisID: 'y', // Left Axis
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Social Sentiment',
+                        data: data.chart_data.sentiment,
+                        borderColor: '#1e3c72', // Blue line for your brand
+                        borderDash: [5, 5], // Dashed line to distinguish it
+                        yAxisID: 'y1', // Right Axis
+                        tension: 0.4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: { display: true, text: 'Stock Price ($)' }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        grid: { drawOnChartArea: false }, // Remove grid lines for clarity
+                        title: { display: true, text: 'Sentiment Score (-1 to 1)' },
+                        min: -1,
+                        max: 1
+                    }
+                }
             }
         });
-    }
 </script>
 </body>
 </html>
