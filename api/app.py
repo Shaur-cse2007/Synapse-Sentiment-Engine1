@@ -3,15 +3,24 @@ import psycopg2
 import datetime
 import nltk
 import pickle
-import numpy as np
+import random
 from flask import Flask, render_template, jsonify, request
 import yfinance as yf
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import StandardScaler
 
-# --- MOCK DATA IMPORT (No Reddit API needed!) ---
-import random
+# --- NLTK SETUP ---
+try:
+    nltk.download('vader_lexicon', download_dir='/tmp/nltk_data', quiet=True)
+except:
+    pass
 
+NLTK_DATA_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'nltk_data')
+if NLTK_DATA_PATH not in nltk.data.path:
+    nltk.data.path.append(NLTK_DATA_PATH)
+
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+sia = SentimentIntensityAnalyzer()
+
+# --- MOCK DATA GENERATOR ---
 class MockSocialDataGenerator:
     """Generates realistic social media data - NO API REQUIRED"""
     
@@ -65,6 +74,10 @@ class MockSocialDataGenerator:
             'GOOGL': {'name': 'Google', 'price': 140},
             'NVDA': {'name': 'NVIDIA', 'price': 480},
             'AMD': {'name': 'AMD', 'price': 150},
+            'AMZN': {'name': 'Amazon', 'price': 170},
+            'META': {'name': 'Meta', 'price': 350},
+            'NFLX': {'name': 'Netflix', 'price': 450},
+            'DIS': {'name': 'Disney', 'price': 95},
         }
     
     def generate_posts(self, ticker, count=20):
@@ -96,130 +109,154 @@ class MockSocialDataGenerator:
 # Initialize mock generator
 mock_generator = MockSocialDataGenerator()
 
-# --- NLTK SETUP ---
-nltk.download('vader_lexicon', download_dir='/tmp/nltk_data', quiet=True)
-NLTK_DATA_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'nltk_data')
-if NLTK_DATA_PATH not in nltk.data.path:
-    nltk.data.path.append(NLTK_DATA_PATH)
-
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
-sia = SentimentIntensityAnalyzer()
-
 # --- APP CONFIGURATION ---
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'synapse-demo-2024')
 
-# --- FINBERT SETUP (Optional - will gracefully fallback to VADER) ---
-USE_FINBERT = False
+# --- REDDIT API SETUP (Optional) ---
+USE_REDDIT = False
 try:
-    from transformers import AutoTokenizer, AutoModelForSequenceClassification
-    import torch
-    finbert_tokenizer = AutoTokenizer.from_pretrained("ProsusAI/finbert")
-    finbert_model = AutoModelForSequenceClassification.from_pretrained("ProsusAI/finbert")
-    USE_FINBERT = True
-    print("✅ FinBERT loaded successfully")
+    import praw
+    reddit_client_id = os.environ.get("REDDIT_CLIENT_ID", "")
+    reddit_client_secret = os.environ.get("REDDIT_CLIENT_SECRET", "")
+    
+    if reddit_client_id and reddit_client_secret:
+        reddit = praw.Reddit(
+            client_id=reddit_client_id,
+            client_secret=reddit_client_secret,
+            user_agent="SynapseSentimentEngine/1.0"
+        )
+        USE_REDDIT = True
+        print("✅ Reddit API connected")
 except Exception as e:
-    print(f"ℹ️ Using VADER (FinBERT not available: {e})")
+    print(f"ℹ️ Using mock data (Reddit API not available: {e})")
 
-# --- ML MODEL SETUP ---
-MODEL_PATH = 'sentiment_predictor.pkl'
-SCALER_PATH = 'scaler.pkl'
-
-def load_or_create_model():
+# --- ML MODEL SETUP (OPTIONAL) ---
+USE_ML_MODEL = False
+try:
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.preprocessing import StandardScaler
+    import numpy as np
+    
+    MODEL_PATH = 'sentiment_predictor.pkl'
+    SCALER_PATH = 'scaler.pkl'
+    
     if os.path.exists(MODEL_PATH) and os.path.exists(SCALER_PATH):
         with open(MODEL_PATH, 'rb') as f:
-            model = pickle.load(f)
+            ml_model = pickle.load(f)
         with open(SCALER_PATH, 'rb') as f:
-            scaler = pickle.load(f)
-        print("✅ ML Model loaded from disk")
-        return model, scaler
+            ml_scaler = pickle.load(f)
+        USE_ML_MODEL = True
+        print("✅ ML Model loaded")
     else:
-        model = RandomForestClassifier(n_estimators=100, random_state=42)
-        scaler = StandardScaler()
-        print("ℹ️ New ML model created (will use heuristics)")
-        return model, scaler
-
-ml_model, ml_scaler = load_or_create_model()
+        print("ℹ️ ML model not found, using heuristic predictions")
+except Exception as e:
+    print(f"ℹ️ ML libraries not available: {e}")
 
 # --- DATABASE CONNECTION ---
 def get_db_connection():
     try:
-        conn = psycopg2.connect(os.environ.get("POSTGRES_URL", ""))
-        return conn
+        postgres_url = os.environ.get("POSTGRES_URL", "")
+        if postgres_url and postgres_url.strip():
+            conn = psycopg2.connect(postgres_url, connect_timeout=10)
+            return conn
     except Exception as e:
         print(f"ℹ️ Database not connected: {e}")
-        return None
+    return None
 
 def init_db():
     conn = get_db_connection()
     if conn:
-        cur = conn.cursor()
-        cur.execute('''CREATE TABLE IF NOT EXISTS logs (
-                        id SERIAL PRIMARY KEY,
-                        ticker TEXT,
-                        source TEXT,
-                        text TEXT,
-                        score REAL,
-                        label TEXT,
-                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )''')
-        conn.commit()
-        cur.close()
-        conn.close()
+        try:
+            cur = conn.cursor()
+            cur.execute('''CREATE TABLE IF NOT EXISTS logs (
+                            id SERIAL PRIMARY KEY,
+                            ticker TEXT,
+                            source TEXT,
+                            text TEXT,
+                            score REAL,
+                            label TEXT,
+                            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )''')
+            conn.commit()
+            cur.close()
+            conn.close()
+            print("✅ Database initialized")
+        except Exception as e:
+            print(f"⚠️ Database init error: {e}")
 
 # --- SENTIMENT ANALYSIS ---
-def analyze_with_finbert(text):
-    try:
-        inputs = finbert_tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
-        outputs = finbert_model(**inputs)
-        probs = torch.nn.functional.softmax(outputs.logits, dim=-1)
-        sentiment_score = probs[0][0].item() - probs[0][1].item()
-        return sentiment_score
-    except Exception as e:
-        return sia.polarity_scores(text)['compound']
-
 def analyze_sentiment(text):
-    if USE_FINBERT:
-        return analyze_with_finbert(text)
-    else:
-        return sia.polarity_scores(text)['compound']
+    """Analyze sentiment using VADER"""
+    return sia.polarity_scores(text)['compound']
 
-# --- DATA COLLECTION (Using Mock Data) ---
+# --- DATA COLLECTION ---
+def fetch_reddit_posts(ticker, limit=20):
+    """Fetch real posts from Reddit"""
+    if not USE_REDDIT:
+        return None
+    
+    posts = []
+    try:
+        subreddits = ['wallstreetbets', 'stocks', 'investing']
+        for subreddit_name in subreddits[:2]:  # Limit to 2 for speed
+            subreddit = reddit.subreddit(subreddit_name)
+            for submission in subreddit.search(f"${ticker}", limit=limit//2, time_filter='day'):
+                posts.append({
+                    'text': f"{submission.title}. {submission.selftext[:200]}",
+                    'source': f'Reddit: r/{subreddit_name}'
+                })
+        return [(p['text'], p['source']) for p in posts] if posts else None
+    except Exception as e:
+        print(f"Reddit fetch error: {e}")
+        return None
+
 def fetch_social_data(ticker):
-    """Fetch realistic mock social media data - NO API REQUIRED"""
+    """Fetch social media data - tries Reddit, falls back to mock"""
+    if USE_REDDIT:
+        reddit_posts = fetch_reddit_posts(ticker)
+        if reddit_posts:
+            return reddit_posts
+    
+    # Fallback to mock data
     return mock_generator.generate_posts(ticker, count=20)
 
 # --- ML PREDICTION ---
 def get_ml_prediction(ticker, sentiment_scores):
+    """Predict stock movement using ML or heuristic"""
+    if not sentiment_scores:
+        return "NEUTRAL", 0.5
+    
     try:
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="5d")
-        
-        if len(hist) < 2:
-            return None, "Insufficient data"
-        
-        avg_sentiment = np.mean(sentiment_scores)
-        sentiment_std = np.std(sentiment_scores)
-        recent_price_change = (hist['Close'].iloc[-1] - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]
-        avg_volume = hist['Volume'].mean()
-        
-        features = np.array([[avg_sentiment, sentiment_std, recent_price_change, avg_volume]])
-        
-        try:
-            features_scaled = ml_scaler.transform(features)
-            prediction = ml_model.predict(features_scaled)[0]
-            confidence = ml_model.predict_proba(features_scaled)[0].max()
-            return prediction, confidence
-        except:
-            # Heuristic prediction
-            if avg_sentiment > 0.1:
-                return "BULLISH", 0.65
-            elif avg_sentiment < -0.1:
-                return "BEARISH", 0.65
-            else:
-                return "NEUTRAL", 0.55
+        # Calculate average sentiment
+        if USE_ML_MODEL:
+            import numpy as np
+            # Get historical data for features
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="5d")
+            
+            if len(hist) >= 2:
+                avg_sentiment = np.mean(sentiment_scores)
+                sentiment_std = np.std(sentiment_scores)
+                recent_price_change = (hist['Close'].iloc[-1] - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]
+                avg_volume = hist['Volume'].mean()
+                
+                features = np.array([[avg_sentiment, sentiment_std, recent_price_change, avg_volume]])
+                features_scaled = ml_scaler.transform(features)
+                prediction = ml_model.predict(features_scaled)[0]
+                confidence = ml_model.predict_proba(features_scaled)[0].max()
+                return prediction, confidence
     except Exception as e:
         print(f"ML prediction error: {e}")
-        return None, 0.5
+    
+    # Heuristic fallback
+    avg_score = sum(sentiment_scores) / len(sentiment_scores)
+    if avg_score > 0.1:
+        return "BULLISH", 0.65
+    elif avg_score < -0.1:
+        return "BEARISH", 0.65
+    else:
+        return "NEUTRAL", 0.55
 
 # --- ROUTES ---
 @app.route('/')
@@ -230,7 +267,7 @@ def index():
 def analyze():
     ticker = request.json.get('ticker', 'AAPL').upper()
     
-    # 1. Fetch Real Stock Data
+    # 1. Fetch Stock Data
     price_dates = []
     price_values = []
     current_price = "N/A"
@@ -245,15 +282,24 @@ def analyze():
             price_values = [round(v, 2) for v in hist['Close'].tolist()]
             volume_data = hist['Volume'].tolist()
             current_price = price_values[-1]
+        else:
+            # Fallback for closed market
+            hist = stock.history(period="5d", interval="1h")
+            if not hist.empty:
+                hist = hist.tail(7)
+                price_dates = [d.strftime('%H:%M') for d in hist.index]
+                price_values = [round(v, 2) for v in hist['Close'].tolist()]
+                volume_data = hist['Volume'].tolist()
+                current_price = price_values[-1]
     except Exception as e:
         print(f"⚠️ yFinance Error: {e}")
-        # Fallback data
+        # Emergency fallback
         price_dates = ["09:30", "10:00", "10:30", "11:00", "11:30", "12:00"]
         price_values = [150 + i*2 for i in range(6)]
         volume_data = [1000000] * 6
         current_price = price_values[-1]
 
-    # 2. Fetch & Analyze Social Sentiment (Mock Data)
+    # 2. Fetch & Analyze Social Sentiment
     raw_posts = fetch_social_data(ticker)
     
     conn = get_db_connection()
@@ -288,35 +334,37 @@ def analyze():
 
     # 3. ML-Based Prediction
     ml_prediction, confidence = get_ml_prediction(ticker, sentiment_scores)
-    
     avg_score = sum(sentiment_scores) / len(sentiment_scores) if sentiment_scores else 0
     
     if ml_prediction:
-        prediction = f"{ml_prediction} 📈" if "BULLISH" in str(ml_prediction) else f"{ml_prediction} 📉" if "BEARISH" in str(ml_prediction) else f"{ml_prediction} ➖"
-        prediction_details = f"{prediction} (Confidence: {confidence*100:.1f}%)"
+        if "BULLISH" in str(ml_prediction):
+            prediction = f"{ml_prediction} 📈 (Confidence: {confidence*100:.1f}%)"
+        elif "BEARISH" in str(ml_prediction):
+            prediction = f"{ml_prediction} 📉 (Confidence: {confidence*100:.1f}%)"
+        else:
+            prediction = f"{ml_prediction} ➖ (Confidence: {confidence*100:.1f}%)"
     else:
         prediction = "BULLISH 📈" if avg_score > 0.05 else "BEARISH 📉" if avg_score < -0.05 else "NEUTRAL ➖"
-        prediction_details = prediction
 
     # 4. Create sentiment trend
     sentiment_trend = []
     if sentiment_scores:
         base_sentiment = avg_score
         for i in range(len(price_values)):
-            variation = np.random.normal(0, 0.1)
+            variation = random.uniform(-0.1, 0.1)
             sentiment_trend.append(round(base_sentiment + variation, 3))
     else:
         sentiment_trend = [0] * len(price_values)
 
     return jsonify({
         'ticker': ticker,
-        'prediction': prediction_details,
+        'prediction': prediction,
         'avg_score': round(avg_score, 3),
         'current_price': current_price,
         'logs': new_logs[:15],
         'total_posts_analyzed': len(new_logs),
-        'data_source': '🎭 High-Quality Mock Data (Demo Mode)',
-        'nlp_model': 'FinBERT' if USE_FINBERT else 'VADER',
+        'data_source': 'Real Reddit Data' if USE_REDDIT else '🎭 High-Quality Mock Data (Demo Mode)',
+        'nlp_model': 'VADER',
         'chart_data': {
             'labels': price_dates,
             'prices': price_values,
@@ -328,24 +376,26 @@ def analyze():
 @app.route('/api/status', methods=['GET'])
 def status():
     return jsonify({
-        'reddit_connected': False,
-        'mock_data_active': True,
-        'finbert_loaded': USE_FINBERT,
-        'ml_model_trained': os.path.exists(MODEL_PATH),
+        'reddit_connected': USE_REDDIT,
+        'mock_data_active': not USE_REDDIT,
+        'finbert_loaded': False,
+        'ml_model_trained': USE_ML_MODEL,
         'database_connected': get_db_connection() is not None,
-        'message': 'Running in Demo Mode with realistic mock data'
+        'message': 'Running on Vercel with VADER sentiment analysis'
     })
 
 # Initialize DB on startup
 with app.app_context():
     init_db()
 
+# Vercel entry point
 if __name__ == '__main__':
     print("\n" + "="*60)
-    print("🧠 SYNAPSE SENTIMENT ENGINE")
+    print("🧠 SYNAPSE SENTIMENT ENGINE - VERCEL OPTIMIZED")
     print("="*60)
-    print("✅ Mock Data Generator Active (No API keys needed)")
-    print(f"✅ NLP Engine: {'FinBERT' if USE_FINBERT else 'VADER'}")
-    print(f"✅ Database: {'Connected' if get_db_connection() else 'Optional (using memory)'}")
+    print(f"✅ Mock Data Generator: {'Standby' if USE_REDDIT else 'Active'}")
+    print(f"✅ NLP Engine: VADER")
+    print(f"✅ ML Model: {'Loaded' if USE_ML_MODEL else 'Heuristic Mode'}")
+    print(f"✅ Database: {'Connected' if get_db_connection() else 'Optional (memory)'}")
     print("="*60 + "\n")
     app.run(debug=True)
