@@ -189,9 +189,5 @@ def status():
         'message': 'Demo mode - All systems operational'
     })
 
-# Vercel serverless entry point
-def handler(request):
-    return app(request)
-
 if __name__ == '__main__':
     app.run(debug=True)
